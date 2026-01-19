@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Fireworks Display</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: linear-gradient(to bottom, #000428, #004e92);
+            overflow: hidden;
+            font-family: 'Arial', sans-serif;
+        }
+
+        canvas {
+            display: block;
+            cursor: crosshair;
+        }
+
+        .controls {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 20px;
+            border-radius: 10px;
+            color: white;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .controls h2 {
+            margin-bottom: 15px;
+            font-size: 18px;
+            color: #ffd700;
+        }
+
+        .control-group {
+            margin-bottom: 15px;
+        }
+
+        .control-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 14px;
+            color: #ccc;
+        }
+
+        .control-group input[type="range"] {
+            width: 100%;
+            margin-bottom: 5px;
+        }
+
+        .control-group button {
+            background: linear-gradient(45deg, #ff6b6b, #ffd700);
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+            transition: transform 0.2s;
+            margin-right: 10px;
+        }
+
+        .control-group button:hover {
+            transform: scale(1.05);
+        }
+
+        .control-group button:active {
+            transform: scale(0.95);
+        }
+
+        .info {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 10px;
+            color: white;
+            font-size: 14px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .info span {
+            color: #ffd700;
+            font-weight: bold;
+        }
+
+        .sound-control {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 10px;
+            color: white;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .sound-control button {
+            background: linear-gradient(45deg, #4CAF50, #8BC34A);
+            border: none;
+            padding: 8px 16px;
+            border-radius: 5px;
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+            transition: transform 0.2s;
+            width: 100%;
+        }
+
+        .sound-control button:hover {
+            transform: scale(1.05);
+        }
+
+        .sound-control button.muted {
+            background: linear-gradient(45deg, #f44336, #e91e63);
+        }
+    </style>
+</head>
+<body>
+    <canvas id="fireworksCanvas"></canvas>
+    
+    
+    <div class="info">
+        Click anywhere to launch fireworks!<br>
+        Active Fireworks: <span id="activeCount">0</span>
+    </div>
+
+
+    <script>
+        const canvas = document.getElementById('fireworksCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        // Canvas setup
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+        
+        // Configuration
+        let config = {
+            particleCount: 100,
+            explosionSize: 5,
+            gravity: 0.1,
+            autoFireworks: true,
+            friction: 0.98,
+            fadeRate: 0.02,
+            soundEnabled: true,
+            volume: 0.8,
+            gravityVariation: 0.05,
+            heightVariation: 1.2
+        };
+
+        // Audio Context Setup
+        let audioContext = null;
+        
+        function initAudio() {
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            }
+        }
+
+        // Sound Effects
+        function playLaunchSound() {
+            if (!config.soundEnabled || !audioContext) return;
+            
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+            
+            oscillator.frequency.setValueAtTime(100, audioContext.currentTime);
+            oscillator.frequency.exponentialRampToValueAtTime(50, audioContext.currentTime + 0.5);
+            
+            gainNode.gain.setValueAtTime(config.volume * 0.3, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+            
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + 0.5);
+        }
+
+        function playExplosionSound() {
+            if (!config.soundEnabled || !audioContext) return;
+            
+            const bufferSize = audioContext.sampleRate * 0.3;
+            const buffer = audioContext.createBuffer(1, bufferSize, audioContext.sampleRate);
+            const output = buffer.getChannelData(0);
+            
+            for (let i = 0; i < bufferSize; i++) {
+                output[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufferSize, 2) * config.volume;
+            }
+            
+            const whiteNoise = audioContext.createBufferSource();
+            whiteNoise.buffer = buffer;
+            
+            const gainNode = audioContext.createGain();
+            gainNode.gain.setValueAtTime(config.volume * 0.5, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+            
+            const filter = audioContext.createBiquadFilter();
+            filter.type = 'lowpass';
+            filter.frequency.setValueAtTime(1000, audioContext.currentTime);
+            filter.frequency.exponentialRampToValueAtTime(100, audioContext.currentTime + 0.3);
+            
+            whiteNoise.connect(filter);
+            filter.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+            
+            whiteNoise.start(audioContext.currentTime);
+        }
+
+        function playSparkleSound() {
+            if (!config.soundEnabled || !audioContext) return;
+            
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+            
+            oscillator.type = 'sine';
+            oscillator.frequency.setValueAtTime(800 + Math.random() * 400, audioContext.currentTime);
+            
+            gainNode.gain.setValueAtTime(config.volume * 0.1, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.1);
+            
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + 0.1);
+        }
+        
+        // Colors for fireworks
+        const colors = [
+            '#ff0000', '#00ff00', '#0000ff', '#ffff00', '#ff00ff', '#00ffff',
+            '#ffa500', '#ff69b4', '#9370db', '#32cd32', '#ffd700', '#ff1493',
+            '#00bfff', '#ff6347', '#40e0d0', '#ee82ee', '#f0e68c', '#add8e6'
+        ];
+        
+        // Particle class
+        class Particle {
+            constructor(x, y, color, velocity, size) {
+                this.x = x;
+                this.y = y;
+                this.color = color;
+                this.velocity = velocity;
+                this.size = size;
+                this.alpha = 1;
+                this.decay = Math.random() * 0.02 + 0.005;
+                this.trail = [];
+                this.maxTrailLength = 10;
+            }
+            
+            update(customGravity = null) {
+                this.trail.push({ x: this.x, y: this.y, alpha: this.alpha });
+                if (this.trail.length > this.maxTrailLength) {
+                    this.trail.shift();
+                }
+                
+                this.velocity.x *= config.friction;
+                this.velocity.y *= config.friction;
+                const gravity = customGravity !== null ? customGravity : config.gravity;
+                this.velocity.y += gravity;
+                
+                this.x += this.velocity.x;
+                this.y += this.velocity.y;
+                this.alpha -= this.decay;
+                
+                if (this.alpha < 0) this.alpha = 0;
+            }
+            
+            draw() {
+                // Draw trail
+                this.trail.forEach((point, index) => {
+                    ctx.save();
+                    ctx.globalAlpha = point.alpha * (index / this.trail.length) * 0.5;
+                    ctx.fillStyle = this.color;
+                    ctx.beginPath();
+                    ctx.arc(point.x, point.y, this.size * (index / this.trail.length), 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.restore();
+                });
+                
+                // Draw particle
+                ctx.save();
+                ctx.globalAlpha = this.alpha;
+                ctx.fillStyle = this.color;
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = this.color;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+        }
+        
+        // Firework class
+        class Firework {
+            constructor(x, y, targetY, color) {
+                this.x = x;
+                this.y = y;
+                this.targetY = targetY;
+                this.color = color;
+                this.velocity = { x: 0, y: -Math.random() * 3 - 12 };
+                this.exploded = false;
+                this.particles = [];
+                this.trail = [];
+                this.maxTrailLength = 20;
+                this.launchSoundPlayed = false;
+                this.gravity = config.gravity + (Math.random() - 0.5) * config.gravityVariation;
+            }
+            
+            update() {
+                if (!this.exploded) {
+                    if (!this.launchSoundPlayed && this.y < canvas.height * 0.8) {
+                        playLaunchSound();
+                        this.launchSoundPlayed = true;
+                    }
+                    
+                    this.trail.push({ x: this.x, y: this.y });
+                    if (this.trail.length > this.maxTrailLength) {
+                        this.trail.shift();
+                    }
+                    
+                    this.velocity.y += 0.3;
+                    this.y += this.velocity.y;
+                    
+                    if (this.velocity.y >= 0 || this.y <= this.targetY) {
+                        this.explode();
+                    }
+                } else {
+                    this.particles = this.particles.filter(particle => {
+                        particle.update(this.gravity);
+                        return particle.alpha > 0;
+                    });
+                }
+            }
+            
+            explode() {
+                this.exploded = true;
+                playExplosionSound();
+                
+                // Play sparkle sounds for larger explosions
+                if (config.particleCount > 100) {
+                    setTimeout(() => playSparkleSound(), 50);
+                    setTimeout(() => playSparkleSound(), 100);
+                }
+                
+                const particleCount = config.particleCount;
+                
+                for (let i = 0; i < particleCount; i++) {
+                    const angle = (Math.PI * 2 / particleCount) * i + Math.random() * 0.5;
+                    const velocity = Math.random() * (config.explosionSize - 5 + 1) + 5;
+                    
+                    this.particles.push(new Particle(
+                        this.x,
+                        this.y,
+                        this.color,
+                        {
+                            x: Math.cos(angle) * velocity,
+                            y: Math.sin(angle) * velocity
+                        },
+                        Math.random() * 2 + 1
+                    ));
+                }
+            }
+            
+            draw() {
+                if (!this.exploded) {
+                    // Draw trail
+                    this.trail.forEach((point, index) => {
+                        ctx.save();
+                        ctx.globalAlpha = index / this.trail.length;
+                        ctx.fillStyle = this.color;
+                        ctx.beginPath();
+                        ctx.arc(point.x, point.y, 2 * (index / this.trail.length), 0, Math.PI * 2);
+                        ctx.fill();
+                        ctx.restore();
+                    });
+                    
+                    // Draw rocket
+                    ctx.save();
+                    ctx.fillStyle = this.color;
+                    ctx.shadowBlur = 10;
+                    ctx.shadowColor = this.color;
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, 3, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.restore();
+                } else {
+                    this.particles.forEach(particle => particle.draw());
+                }
+            }
+            
+            isDead() {
+                return this.exploded && this.particles.length === 0;
+            }
+        }
+        
+        // Fireworks management
+        let fireworks = [];
+        let autoFireworkTimer = 0;
+        
+        function createFirework(x, y) {
+            const targetY = canvas.height * (0.3 + Math.random() * config.heightVariation * 0.4);
+            const color = colors[Math.floor(Math.random() * colors.length)];
+            fireworks.push(new Firework(x, canvas.height, targetY, color));
+        }
+        
+        function animate() {
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Update and draw fireworks
+            fireworks = fireworks.filter(firework => {
+                firework.update();
+                firework.draw();
+                return !firework.isDead();
+            });
+            
+            // Auto fireworks
+            if (config.autoFireworks) {
+                autoFireworkTimer++;
+                if (autoFireworkTimer > 60 + Math.random() * 60) {
+                    createFirework(
+                        Math.random() * canvas.width,
+                        canvas.height
+                    );
+                    autoFireworkTimer = 0;
+                }
+            }
+            
+            // Update active count
+            document.getElementById('activeCount').textContent = fireworks.length;
+            
+            requestAnimationFrame(animate);
+        }
+        
+        // Event listeners
+        canvas.addEventListener('click', (e) => {
+            initAudio();
+            createFirework(e.clientX, e.clientY);
+        });
+        
+        // Add one-time audio initialization on any user interaction
+        const enableAudio = () => {
+            initAudio();
+            document.removeEventListener('click', enableAudio);
+            document.removeEventListener('keydown', enableAudio);
+            document.removeEventListener('touchstart', enableAudio);
+        };
+        document.addEventListener('click', enableAudio);
+        document.addEventListener('keydown', enableAudio);
+        document.addEventListener('touchstart', enableAudio);
+        
+        // Control listeners - removed as controls are removed
+        
+        // Auto Big Show after 5 seconds
+        setTimeout(() => {
+            // Trigger Big Show automatically
+            for (let i = 0; i < 10; i++) {
+                setTimeout(() => {
+                    createFirework(
+                        Math.random() * canvas.width,
+                        canvas.height
+                    );
+                }, i * 200);
+            }
+            
+            // Show text after 10 seconds and keep it for 30 seconds
+            setTimeout(() => {
+                const showText = () => {
+                    ctx.save();
+                    ctx.font = 'bold 72px Arial';
+                    ctx.fillStyle = '#ffd700';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.shadowBlur = 20;
+                    ctx.shadowColor = '#ffd700';
+                    ctx.fillText('Happy First Day of OJT', canvas.width / 2, canvas.height / 2 - 40);
+                    ctx.fillText('Aglaia', canvas.width / 2, canvas.height / 2 + 40);
+                    ctx.restore();
+                };
+                
+                // Show text initially and keep redrawing it for 30 seconds
+                showText();
+                const textInterval = setInterval(showText, 100);
+                
+                // Clear the interval after 30 seconds
+                setTimeout(() => {
+                    clearInterval(textInterval);
+                }, 30000);
+            }, 10000);
+        }, 5000);
+        
+        // Start animation
+        animate();
+        
+        // Initialize audio immediately and create initial firework
+        initAudio();
+        setTimeout(() => {
+            createFirework(canvas.width / 2, canvas.height);
+        }, 1000);
+    </script>
+</body>
+</html>
